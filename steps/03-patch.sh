@@ -27,7 +27,7 @@ esac
 
 apply_patch "$PATCHES/public_headers.patch"
 apply_patch "$PATCHES/clang_rt.patch" build
-
+. "$PATCHES/cadpdf/apply.sh"
 [ "$ENABLE_V8" == "true" ] && apply_patch "$PATCHES/v8/pdfium.patch"
 
 case "$OS" in
