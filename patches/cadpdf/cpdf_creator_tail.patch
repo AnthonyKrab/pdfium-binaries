@@ -1,0 +1,151 @@
+--- a/core/fpdfapi/edit/cpdf_creator.h	2026-09-11 18:12:22.077358768 +0000
++++ b/core/fpdfapi/edit/cpdf_creator.h	2026-09-11 18:12:45.174079695 +0000
+@@ -43,6 +43,15 @@
+ 
+   bool Create(Mask<CreateFlags> flags, int32_t file_version);
+ 
++  // CadPDF: writes only an incremental update section (objects, cross-reference
++  // section, trailer) without the original file bytes. Offsets are computed as
++  // if the section were appended to the file the document was loaded from.
++  // Written objects: every object numbered above the file's last object number,
++  // plus |extra_obj_nums| (modified existing objects, caller's duty). Returns
++  // false, never a different kind of output, when the result would not be a
++  // valid update section. Mutually exclusive with Create().
++  bool CreateIncrementalTail(const std::vector<uint32_t>& extra_obj_nums);
++
+  private:
+   enum class Stage {
+     kInvalid = -1,
+@@ -100,6 +109,7 @@
+   bool is_incremental_ = false;
+   bool is_original_ = false;
+   bool subset_new_fonts_ = false;
++  bool tail_only_ = false;  // CadPDF: set by CreateIncrementalTail().
+ };
+ 
+ #endif  // CORE_FPDFAPI_EDIT_CPDF_CREATOR_H_
+--- a/core/fpdfapi/edit/cpdf_creator.cpp	2026-09-11 18:12:22.075611687 +0000
++++ b/core/fpdfapi/edit/cpdf_creator.cpp	2026-09-11 18:12:45.174613530 +0000
+@@ -10,6 +10,7 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <limits>
+ #include <map>
+ #include <set>
+ #include <utility>
+@@ -59,6 +60,8 @@
+ 
+   bool WriteBlock(pdfium::span<const uint8_t> buffer) override;
+   FX_FILESIZE CurrentOffset() const override { return offset_; }
++  // CadPDF: start offset for an update section written without the original.
++  void SetBaseOffset(FX_FILESIZE offset) { offset_ = offset; }
+ 
+  private:
+   bool Flush();
+@@ -226,6 +229,11 @@
+ }
+ 
+ void CPDF_Creator::InitNewObjNumOffsets() {
++  // CadPDF: the object list is prepared by CreateIncrementalTail().
++  if (tail_only_) {
++    return;
++  }
++
+   for (const auto& pair : *document_) {
+     const uint32_t objnum = pair.first;
+     if (pair.second->GetObjNum() == CPDF_Object::kInvalidObjNum) {
+@@ -463,7 +471,7 @@
+     }
+   } else {
+     if (!archive_->WriteDWord(document_->GetLastObjNum() + 1) ||
+-        !archive_->WriteString(" 0 obj <<")) {
++        !archive_->WriteString(" 0 obj <</Type/XRef")) {
+       return Stage::kInvalid;
+     }
+   }
+@@ -587,7 +595,7 @@
+         }
+       }
+     }
+-    if (!archive_->WriteString("\r\nendstream")) {
++    if (!archive_->WriteString("\r\nendstream\r\nendobj")) {
+       return Stage::kInvalid;
+     }
+   }
+@@ -633,6 +641,75 @@
+   return Continue();
+ }
+ 
++bool CPDF_Creator::CreateIncrementalTail(
++    const std::vector<uint32_t>& extra_obj_nums) {
++  if (id_array_) {
++    return false;  // Create() or CreateIncrementalTail() already ran.
++  }
++  // Every refusal below guards against output that is not a valid update
++  // section for the file the document was loaded from.
++  if (!parser_ || encrypt_dict_ || security_handler_ ||
++      parser_->xref_table_rebuilt() || parser_->GetLastXRefOffset() <= 0) {
++    return false;
++  }
++  const FX_FILESIZE base_offset = parser_->GetDocumentSize();
++  if (base_offset <= 0) {
++    return false;
++  }
++
++  const uint32_t last_file_obj_num = parser_->GetLastObjNum();
++  std::vector<uint32_t> obj_nums;
++  for (const auto& pair : *document_) {
++    if (pair.first > last_file_obj_num && pair.second &&
++        pair.second->GetObjNum() != CPDF_Object::kInvalidObjNum) {
++      obj_nums.push_back(pair.first);
++    }
++  }
++  for (uint32_t objnum : extra_obj_nums) {
++    // Never parse here: an object that is not loaded was not modified.
++    RetainPtr<const CPDF_Object> obj = document_->GetIndirectObject(objnum);
++    if (!obj) {
++      return false;
++    }
++    // Objects are written with generation 0; references to a non-zero
++    // generation in the file would stop resolving.
++    if (obj->GetGenNum() != 0) {
++      return false;
++    }
++    obj_nums.push_back(objnum);
++  }
++  std::sort(obj_nums.begin(), obj_nums.end());
++  obj_nums.erase(std::unique(obj_nums.begin(), obj_nums.end()),
++                 obj_nums.end());
++  if (obj_nums.empty()) {
++    return false;
++  }
++
++  static_cast<FileBufferArchive*>(archive_.get())->SetBaseOffset(base_offset);
++  tail_only_ = true;
++  is_incremental_ = true;
++  is_original_ = false;
++  subset_new_fonts_ = false;
++  stage_ = Stage::kInit0;
++  last_obj_num_ = document_->GetLastObjNum();
++  object_offsets_.clear();
++  new_obj_num_array_ = std::move(obj_nums);  // Sorted, ascending.
++
++  InitID();
++  if (!Continue()) {
++    return false;
++  }
++  // WriteNewObjs() skips objects it cannot find; a skipped one would leave a
++  // dangling reference, so every listed object must have been written.
++  for (uint32_t objnum : new_obj_num_array_) {
++    if (!pdfium::Contains(object_offsets_, objnum)) {
++      return false;
++    }
++  }
++  // Classic cross-reference entries are printed with "%010d".
++  return archive_->CurrentOffset() <= std::numeric_limits<int32_t>::max();
++}
++
+ void CPDF_Creator::InitID() {
+   DCHECK(!id_array_);
+ 
