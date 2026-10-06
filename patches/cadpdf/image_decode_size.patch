@@ -1,0 +1,62 @@
+--- a/core/fpdfapi/render/cpdf_imagerenderer.cpp
++++ b/core/fpdfapi/render/cpdf_imagerenderer.cpp
+@@ -58,6 +58,28 @@
+   return safe_val.ValueOrDefault(kLimit) >= kLimit;
+ }
+ 
++// CadPDF E2: the number of device pixels one image axis spans, `unit` being
++// the length of that axis in device space. NaN and values below 1 give 1.
++int ImageAxisDevicePixels(float unit) {
++  static constexpr float kMax = 1024.0f * 1024.0f * 1024.0f;
++  if (!(unit > 1.0f)) {
++    return 1;
++  }
++  return unit >= kMax ? static_cast<int>(kMax) : static_cast<int>(ceilf(unit));
++}
++
++// CadPDF E2: true when the image stream's last filter is DCTDecode, i.e. the
++// image is decoded by libjpeg.
++bool IsDCTImage(const CPDF_ImageObject* image_object) {
++  RetainPtr<const CPDF_Stream> stream = image_object->GetImage()->GetStream();
++  if (!stream) {
++    return false;
++  }
++  std::optional<DecoderArray> decoders = GetDecoderArray(stream->GetDict());
++  return decoders.has_value() && !decoders.value().empty() &&
++         decoders.value().back().first == "DCTDecode";
++}
++
+ }  // namespace
+ 
+ CPDF_ImageRenderer::CPDF_ImageRenderer(CPDF_RenderStatus* pStatus)
+@@ -70,13 +92,23 @@
+     return false;
+   }
+ 
+-  if (!loader_->Start(
+-          image_object_, render_status_->GetContext()->GetPageCache(),
+-          render_status_->GetFormResource(), render_status_->GetPageResource(),
+-          std_cs_, render_status_->GetGroupFamily(),
+-          render_status_->GetLoadMask(),
+-          {render_status_->GetRenderDevice()->GetWidth(),
+-           render_status_->GetRenderDevice()->GetHeight()})) {
++  // CadPDF E2: for a DCT image the decode size required is the image's own
++  // size on the device, not the device bitmap's size, which is too small for
++  // a bitmap holding only part of the page at high zoom. Other codecs keep
++  // the device size: a JPX image decoded at full size is much slower.
++  CFX_Size max_size_required(render_status_->GetRenderDevice()->GetWidth(),
++                             render_status_->GetRenderDevice()->GetHeight());
++  if (IsDCTImage(image_object_)) {
++    max_size_required =
++        CFX_Size(ImageAxisDevicePixels(image_matrix_.GetXUnit()),
++                 ImageAxisDevicePixels(image_matrix_.GetYUnit()));
++  }
++  if (!loader_->Start(image_object_,
++                      render_status_->GetContext()->GetPageCache(),
++                      render_status_->GetFormResource(),
++                      render_status_->GetPageResource(), std_cs_,
++                      render_status_->GetGroupFamily(),
++                      render_status_->GetLoadMask(), max_size_required)) {
+     return false;
+   }
+   mode_ = Mode::kDefault;

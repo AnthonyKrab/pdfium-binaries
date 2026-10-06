@@ -1,0 +1,96 @@
+--- a/core/fxcodec/jpeg/libjpeg_scanline_decoder.cpp
++++ b/core/fxcodec/jpeg/libjpeg_scanline_decoder.cpp
+@@ -125,31 +125,17 @@
+   orig_width_ = common_.cinfo.image_width;
+   orig_height_ = common_.cinfo.image_height;
+ 
+-  // Reduced-size (scale_denom) decoding collapses each 8x8 DCT block toward its
+-  // low-frequency content, ultimately its average at 1/8. If a dimension is not
+-  // a multiple of the MCU size, the encoder had to pad the partial edge blocks;
+-  // that padding is not required to replicate the edge (some encoders fill it
+-  // with black), and reduced decoding cannot crop it back out, so it would
+-  // contaminate the visible edge pixels (e.g. a too-dark right/bottom fringe).
+-  // Only decode at reduced size when there are no padded edge blocks in any
+-  // component, which makes the result exact regardless of the encoder. The MCU
+-  // size in pixels is max_samp_factor * DCTSIZE; derive it from the per-
+-  // component sampling factors, which are valid immediately after read_header.
+-  // See https://crbug.com/890745 and
+-  // https://github.com/libjpeg-turbo/libjpeg-turbo/issues/297.
+-  int max_h_samp = 1;
+-  int max_v_samp = 1;
+-  // SAFETY: libjpeg guarantees `comp_info` points to `num_components` entries
+-  // once the header has been read.
+-  auto comp_info = UNSAFE_BUFFERS(
+-      pdfium::span(common_.cinfo.comp_info,
+-                   static_cast<size_t>(common_.cinfo.num_components)));
+-  for (const jpeg_component_info& comp : comp_info) {
+-    max_h_samp = std::max(max_h_samp, comp.h_samp_factor);
+-    max_v_samp = std::max(max_v_samp, comp.v_samp_factor);
+-  }
+-  if (orig_width_ % (max_h_samp * DCTSIZE) != 0 ||
+-      orig_height_ % (max_v_samp * DCTSIZE) != 0) {
++  // CadPDF E1: reduced-size (scale_denom) decoding is allowed for images whose
++  // dimensions are not a multiple of the MCU. Upstream switches it off for
++  // them (https://crbug.com/890745): the encoder pads the partial edge blocks,
++  // possibly with black, and reduced decoding mixes that padding into the
++  // edge. Measured with black padding, 4:2:0 and 4:4:4, at 1/2, 1/4 and 1/8:
++  // exactly the last output column is spoiled when
++  // orig_width_ % scale_denom_ != 0, and the last output row when
++  // orig_height_ % scale_denom_ != 0. GetNextLine() replaces each with its
++  // neighbour. That needs two output pixels per axis, else no reduction.
++  if (ScaledJpegSize(orig_width_, scale_denom_) < 2 ||
++      ScaledJpegSize(orig_height_, scale_denom_) < 2) {
+     // Reset to 1 (no reduction). This is equivalent to using
+     // common_.cinfo.scale_denom, which libjpeg leaves at its default of 1 until
+     // jpeg_start_decompress(); that has not run yet here.
+@@ -221,9 +207,9 @@
+       return false;
+     }
+   }
+-  // `CreateImpl()` validated `scale_denom_` and, for non-MCU-aligned images,
+-  // reset it to 1 in `InitDecode()` (called from `CreateImpl()`, and again just
+-  // above when re-decoding), so it is safe to use as-is here.
++  // `CreateImpl()` validated `scale_denom_` and, for images too small to
++  // reduce, reset it to 1 in `InitDecode()` (called from `CreateImpl()`, and
++  // again just above when re-decoding), so it is safe to use as-is here.
+   common_.cinfo.scale_denom = scale_denom_;
+   output_width_ = ScaledJpegSize(orig_width_, scale_denom_);
+   output_height_ = ScaledJpegSize(orig_height_, scale_denom_);
+@@ -239,11 +225,37 @@
+ }
+ 
+ pdfium::span<uint8_t> LibjpegScanlineDecoder::GetNextLine() {
++  // CadPDF E1: the last output row of a reduced decode with a partial edge
++  // block is spoiled (see InitDecode()). It is read into a scratch buffer and
++  // the previous row, still in `scanline_buf_`, is returned in its place.
++  // InitDecode() guarantees at least two output rows when this applies.
++  const bool replace_row =
++      orig_height_ % scale_denom_ != 0 &&
++      common_.cinfo.output_scanline + 1 == common_.cinfo.output_height;
++  if (replace_row) {
++    DataVector<uint8_t> scratch(pitch_);
++    uint8_t* scratch_array[] = {scratch.data()};
++    if (jpeg_common_read_scanlines(&common_, scratch_array, 1u) <= 0) {
++      return pdfium::span<uint8_t>();
++    }
++    return scanline_buf_;
++  }
+   uint8_t* row_array[] = {scanline_buf_.data()};
+   int nlines = jpeg_common_read_scanlines(&common_, row_array, 1u);
+   if (nlines <= 0) {
+     return pdfium::span<uint8_t>();
+   }
++  // CadPDF E1: the last output column likewise; copy its left neighbour. Both
++  // offsets lie inside the bytes libjpeg has just written.
++  if (orig_width_ % scale_denom_ != 0) {
++    const size_t bytes_per_pixel =
++        static_cast<size_t>(common_.cinfo.output_components);
++    const size_t last = static_cast<size_t>(common_.cinfo.output_width) - 1;
++    for (size_t i = 0; i < bytes_per_pixel; ++i) {
++      scanline_buf_[last * bytes_per_pixel + i] =
++          scanline_buf_[(last - 1) * bytes_per_pixel + i];
++    }
++  }
+   return scanline_buf_;
+ }
+ 
