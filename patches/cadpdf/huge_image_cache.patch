@@ -1,0 +1,53 @@
+--- a/core/fpdfapi/page/cpdf_pageimagecache.cpp
++++ b/core/fpdfapi/page/cpdf_pageimagecache.cpp
+@@ -19,6 +19,7 @@
+ #include "core/fpdfapi/parser/cpdf_dictionary.h"
+ #include "core/fpdfapi/parser/cpdf_document.h"
+ #include "core/fpdfapi/parser/cpdf_stream.h"
++#include "core/fpdfapi/parser/fpdf_parser_decode.h"
+ #include "core/fxcrt/check.h"
+ #include "core/fxcrt/retain_ptr.h"
+ #include "core/fxcrt/stl_util.h"
+@@ -34,6 +35,18 @@
+ 
+ namespace {
+ 
++// CadPDF C3: true when the image stream's last filter is DCTDecode, i.e. the
++// image is decoded by libjpeg, which can decode at a reduced size.
++bool IsDCTImage(const CPDF_Image* image) {
++  RetainPtr<const CPDF_Stream> stream = image->GetStream();
++  if (!stream) {
++    return false;
++  }
++  std::optional<DecoderArray> decoders = GetDecoderArray(stream->GetDict());
++  return decoders.has_value() && !decoders.value().empty() &&
++         decoders.value().back().first == "DCTDecode";
++}
++
+ struct CacheInfo {
+   CacheInfo(uint32_t t, RetainPtr<const CPDF_Stream> stream)
+       : time(t), pStream(std::move(stream)) {}
+@@ -353,6 +366,23 @@
+     return false;
+   }
+ 
++  // CadPDF C3: an image at or above kHugeImageSize is cached undecoded and is
++  // decoded again on every use (ContinueGetCachedBitmap()). Such a copy left
++  // by a deep zoom must not serve a request a reduced-size JPEG decode can:
++  // that decode is realized once and reused, the huge copy costs a full decode
++  // per render. At least half the cached size on both axes is exactly when
++  // CPDF_DIB::StartLoadDIBBase() would skip a resolution level. A copy already
++  // at libjpeg's limit of 1/8 cannot be reduced further and is kept.
++  if (cached_bitmap_->GetPitch() * cached_bitmap_->GetHeight() >=
++          kHugeImageSize &&
++      static_cast<int64_t>(cached_bitmap_->GetWidth()) >
++          (static_cast<int64_t>(image_->GetPixelWidth()) + 7) / 8 &&
++      cached_bitmap_->GetWidth() / 2 >= max_size_required.width &&
++      cached_bitmap_->GetHeight() / 2 >= max_size_required.height &&
++      IsDCTImage(image_.Get())) {
++    return false;
++  }
++
+   return (cached_bitmap_->GetWidth() >= max_size_required.width) &&
+          (cached_bitmap_->GetHeight() >= max_size_required.height);
+ }

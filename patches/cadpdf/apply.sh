@@ -10,6 +10,8 @@
 #     images not aligned to the MCU, the spoiled edge column and row replaced.
 #  6. image_decode_size.patch    - E2: decode size of a DCT image taken from
 #     its size on the device, not from the device bitmap.
+#  7. huge_image_cache.patch     - C3: a huge JPEG copy cached undecoded is not
+#     reused for a request a reduced-size decode can serve.
 # Every step fails loudly; the build must never proceed with a partial set.
 
 PATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,3 +66,5 @@ apply_change jpeg_reduced_decode.patch \
   core/fxcodec/jpeg/libjpeg_scanline_decoder.cpp "CadPDF E1"
 apply_change image_decode_size.patch \
   core/fpdfapi/render/cpdf_imagerenderer.cpp "CadPDF E2"
+apply_change huge_image_cache.patch \
+  core/fpdfapi/page/cpdf_pageimagecache.cpp "CadPDF C3"
