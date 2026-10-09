@@ -10,6 +10,9 @@
 //   2 - C3: a huge JPEG copy cached undecoded after a deep zoom is not reused
 //           for a request a reduced-size decode can serve
 //           (huge_image_cache.patch).
+//   3 - L1: the ICC transform of a Gray/RGB/CMYK profile is created with the
+//           profile's own colour space, so lcms precalculates a table-based
+//           profile instead of running it per pixel (icc_colorspace.patch).
 // A library without this symbol predates level 1.
 
 #include "public/fpdfview.h"
@@ -17,7 +20,7 @@
 extern "C" {
 
 FPDF_EXPORT int FPDF_CALLCONV FPDF_CadPdfPatchLevel() {
-  return 2;
+  return 3;
 }
 
 }  // extern "C"

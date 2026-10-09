@@ -1,0 +1,50 @@
+--- a/core/fxcodec/icc/icc_transform.cpp
++++ b/core/fxcodec/icc/icc_transform.cpp
+@@ -74,6 +74,8 @@
+   }
+ 
+   int srcFormat;
++  // CadPDF L1: lcms flags, see below.
++  cmsUInt32Number dw_flags = 0;
+   bool bLab = false;
+   bool bNormal = false;
+   if (srcCS == cmsSigLabData) {
+@@ -81,8 +83,28 @@
+         COLORSPACE_SH(PT_Lab) | CHANNELS_SH(nSrcComponents) | BYTES_SH(0);
+     bLab = true;
+   } else {
++    // CadPDF L1: the profile's own colour space instead of PT_ANY. lcms
++    // optimises a transform into a precalculated table only when the input
++    // colour space is known (cmsopt.c, OptimizeByResampling: "Color space
++    // must be specified"); with PT_ANY a table-based profile (a scanner's
++    // A2B0, any CMYK profile) runs its whole pipeline for every pixel, ~10x
++    // slower. Matrix/curve profiles (sRGB) are optimised either way and give
++    // the same bytes. The finer table (49 points for RGB, 23 for CMYK) halves
++    // the interpolation error at the same speed; it is built once per profile
++    // per document (CPDF_DocPageData::GetIccProfile).
++    int src_pt = PT_ANY;
++    if (srcCS == cmsSigGrayData) {
++      src_pt = PT_GRAY;
++    } else if (srcCS == cmsSigRgbData) {
++      src_pt = PT_RGB;
++    } else if (srcCS == cmsSigCmykData) {
++      src_pt = PT_CMYK;
++    }
++    if (src_pt != PT_ANY) {
++      dw_flags = cmsFLAGS_HIGHRESPRECALC;
++    }
+     srcFormat =
+-        COLORSPACE_SH(PT_ANY) | CHANNELS_SH(nSrcComponents) | BYTES_SH(1);
++        COLORSPACE_SH(src_pt) | CHANNELS_SH(nSrcComponents) | BYTES_SH(1);
+     // TODO(thestig): Check to see if lcms2 supports more colorspaces that can
+     // be considered normal.
+     bNormal = srcCS == cmsSigGrayData || srcCS == cmsSigRgbData ||
+@@ -98,7 +120,7 @@
+     case cmsSigRgbData:
+       hTransform =
+           cmsCreateTransform(srcProfile.get(), srcFormat, dstProfile.get(),
+-                             TYPE_BGR_8, INTENT_PERCEPTUAL, /*dwFlags=*/0);
++                             TYPE_BGR_8, INTENT_PERCEPTUAL, dw_flags);
+       break;
+     case cmsSigGrayData:
+     case cmsSigCmykData:
