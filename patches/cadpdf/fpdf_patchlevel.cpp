@@ -15,6 +15,9 @@
 //           profile instead of running it per pixel (icc_colorspace.patch).
 //   4 - E2 extended to JPX: the decode size of a JPX image is its own size on
 //           the device too (image_decode_size.patch).
+//   5 - E2 capped at the image's own pixels, so a full-size copy serves any
+//           zoom past 1:1 instead of being decoded again on every call
+//           (image_decode_size.patch).
 // A library without this symbol predates level 1.
 
 #include "public/fpdfview.h"
@@ -22,7 +25,7 @@
 extern "C" {
 
 FPDF_EXPORT int FPDF_CALLCONV FPDF_CadPdfPatchLevel() {
-  return 4;
+  return 5;
 }
 
 }  // extern "C"

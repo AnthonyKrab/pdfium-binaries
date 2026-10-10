@@ -33,7 +33,7 @@
  }  // namespace
  
  CPDF_ImageRenderer::CPDF_ImageRenderer(CPDF_RenderStatus* pStatus)
-@@ -70,13 +96,25 @@
+@@ -70,13 +96,32 @@
      return false;
    }
  
@@ -50,12 +50,19 @@
 +  // was decoded at half size for a 1536 px block and again at full size for
 +  // the next 2560 px ring strip, at any zoom (5.2 s against 0.6 s at x3, 3.8 s
 +  // at x10). Other codecs keep the device size.
++  // Never more than the image's own pixels: CPDF_PageImageCache::Entry::
++  // IsCacheValid accepts a copy only if it is at least the size required, so
++  // past 1:1 zoom a larger size rejected the full-size copy and the image was
++  // decoded again on every call (JPX 5000 px: 3.4-3.7 s each time).
 +  CFX_Size max_size_required(render_status_->GetRenderDevice()->GetWidth(),
 +                             render_status_->GetRenderDevice()->GetHeight());
 +  if (IsDCTOrJPXImage(image_object_)) {
-+    max_size_required =
-+        CFX_Size(ImageAxisDevicePixels(image_matrix_.GetXUnit()),
-+                 ImageAxisDevicePixels(image_matrix_.GetYUnit()));
++    RetainPtr<CPDF_Image> image = image_object_->GetImage();
++    max_size_required = CFX_Size(
++        std::max(1, std::min(ImageAxisDevicePixels(image_matrix_.GetXUnit()),
++                             image->GetPixelWidth())),
++        std::max(1, std::min(ImageAxisDevicePixels(image_matrix_.GetYUnit()),
++                             image->GetPixelHeight())));
 +  }
 +  if (!loader_->Start(image_object_,
 +                      render_status_->GetContext()->GetPageCache(),
