@@ -13,6 +13,8 @@
 //   3 - L1: the ICC transform of a Gray/RGB/CMYK profile is created with the
 //           profile's own colour space, so lcms precalculates a table-based
 //           profile instead of running it per pixel (icc_colorspace.patch).
+//   4 - E2 extended to JPX: the decode size of a JPX image is its own size on
+//           the device too (image_decode_size.patch).
 // A library without this symbol predates level 1.
 
 #include "public/fpdfview.h"
@@ -20,7 +22,7 @@
 extern "C" {
 
 FPDF_EXPORT int FPDF_CALLCONV FPDF_CadPdfPatchLevel() {
-  return 3;
+  return 4;
 }
 
 }  // extern "C"

@@ -8,8 +8,8 @@
 #  4. fpdfsdk/fpdf_patchlevel.cpp - additive, new file: FPDF_CadPdfPatchLevel().
 #  5. jpeg_reduced_decode.patch  - E1: reduced-size JPEG decoding also for
 #     images not aligned to the MCU, the spoiled edge column and row replaced.
-#  6. image_decode_size.patch    - E2: decode size of a DCT image taken from
-#     its size on the device, not from the device bitmap.
+#  6. image_decode_size.patch    - E2: decode size of a DCT or JPX image taken
+#     from its size on the device, not from the device bitmap.
 #  7. huge_image_cache.patch     - C3: a huge JPEG copy cached undecoded is not
 #     reused for a request a reduced-size decode can serve.
 #  8. icc_colorspace.patch       - L1: the ICC transform of a Gray/RGB/CMYK

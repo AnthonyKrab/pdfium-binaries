@@ -1,6 +1,6 @@
 --- a/core/fpdfapi/render/cpdf_imagerenderer.cpp
 +++ b/core/fpdfapi/render/cpdf_imagerenderer.cpp
-@@ -58,6 +58,28 @@
+@@ -58,6 +58,32 @@
    return safe_val.ValueOrDefault(kLimit) >= kLimit;
  }
  
@@ -14,22 +14,26 @@
 +  return unit >= kMax ? static_cast<int>(kMax) : static_cast<int>(ceilf(unit));
 +}
 +
-+// CadPDF E2: true when the image stream's last filter is DCTDecode, i.e. the
-+// image is decoded by libjpeg.
-+bool IsDCTImage(const CPDF_ImageObject* image_object) {
++// CadPDF E2: true when the image stream's last filter is DCTDecode or
++// JPXDecode, i.e. the image is decoded by libjpeg or OpenJPEG, both of which
++// decode at a reduced size chosen from the size required.
++bool IsDCTOrJPXImage(const CPDF_ImageObject* image_object) {
 +  RetainPtr<const CPDF_Stream> stream = image_object->GetImage()->GetStream();
 +  if (!stream) {
 +    return false;
 +  }
 +  std::optional<DecoderArray> decoders = GetDecoderArray(stream->GetDict());
-+  return decoders.has_value() && !decoders.value().empty() &&
-+         decoders.value().back().first == "DCTDecode";
++  if (!decoders.has_value() || decoders.value().empty()) {
++    return false;
++  }
++  const ByteString& last = decoders.value().back().first;
++  return last == "DCTDecode" || last == "JPXDecode";
 +}
 +
  }  // namespace
  
  CPDF_ImageRenderer::CPDF_ImageRenderer(CPDF_RenderStatus* pStatus)
-@@ -70,13 +92,23 @@
+@@ -70,13 +96,25 @@
      return false;
    }
  
@@ -40,13 +44,15 @@
 -          render_status_->GetLoadMask(),
 -          {render_status_->GetRenderDevice()->GetWidth(),
 -           render_status_->GetRenderDevice()->GetHeight()})) {
-+  // CadPDF E2: for a DCT image the decode size required is the image's own
-+  // size on the device, not the device bitmap's size, which is too small for
-+  // a bitmap holding only part of the page at high zoom. Other codecs keep
-+  // the device size: a JPX image decoded at full size is much slower.
++  // CadPDF E2: for a DCT or JPX image the decode size required is the
++  // image's own size on the device, not the device bitmap's size, which
++  // depends on how much of the page the bitmap holds: with tiles a JPX image
++  // was decoded at half size for a 1536 px block and again at full size for
++  // the next 2560 px ring strip, at any zoom (5.2 s against 0.6 s at x3, 3.8 s
++  // at x10). Other codecs keep the device size.
 +  CFX_Size max_size_required(render_status_->GetRenderDevice()->GetWidth(),
 +                             render_status_->GetRenderDevice()->GetHeight());
-+  if (IsDCTImage(image_object_)) {
++  if (IsDCTOrJPXImage(image_object_)) {
 +    max_size_required =
 +        CFX_Size(ImageAxisDevicePixels(image_matrix_.GetXUnit()),
 +                 ImageAxisDevicePixels(image_matrix_.GetYUnit()));
