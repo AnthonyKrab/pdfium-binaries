@@ -18,6 +18,10 @@
 //   5 - E2 capped at the image's own pixels, so a full-size copy serves any
 //           zoom past 1:1 instead of being decoded again on every call
 //           (image_decode_size.patch).
+//   6 - FPDF_RenderPageBitmapWithMatrixFiltered(): page content and its
+//           annotations in one pass, listed subtypes and /Annots indices
+//           skipped, /OC of the annotation honoured, the document never
+//           modified (fpdf_annotrender.cpp).
 // A library without this symbol predates level 1.
 
 #include "public/fpdfview.h"
@@ -25,7 +29,7 @@
 extern "C" {
 
 FPDF_EXPORT int FPDF_CALLCONV FPDF_CadPdfPatchLevel() {
-  return 5;
+  return 6;
 }
 
 }  // extern "C"
