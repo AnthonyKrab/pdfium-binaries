@@ -22,6 +22,9 @@
 //           annotations in one pass, listed subtypes and /Annots indices
 //           skipped, /OC of the annotation honoured, the document never
 //           modified (fpdf_annotrender.cpp).
+//   7 - FPDFAnnot_GetObjNum(), FPDFAnnot_GetIndirectObjNumForKey(),
+//           FPDFAnnot_HasNormalAP(), FPDFAnnot_IsOCVisible(): read-only facts
+//           about an annotation (fpdf_annotobj.cpp).
 // A library without this symbol predates level 1.
 
 #include "public/fpdfview.h"
@@ -29,7 +32,7 @@
 extern "C" {
 
 FPDF_EXPORT int FPDF_CALLCONV FPDF_CadPdfPatchLevel() {
-  return 6;
+  return 7;
 }
 
 }  // extern "C"

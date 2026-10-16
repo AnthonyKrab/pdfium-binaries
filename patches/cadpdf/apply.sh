@@ -17,6 +17,8 @@
 #     profile is created with its own colour space, so lcms precalculates it.
 #  9. fpdfsdk/fpdf_annotrender.cpp - additive, new file: page rendering with a
 #     filtered set of annotations, the document never modified.
+# 10. fpdfsdk/fpdf_annotobj.cpp - additive, new file: read-only facts about an
+#     annotation (object numbers, normal appearance, /OC visibility).
 # Every step fails loudly; the build must never proceed with a partial set.
 
 PATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,6 +44,7 @@ register_source fpdf_noparse.cpp
 register_source fpdf_incremental.cpp
 register_source fpdf_patchlevel.cpp
 register_source fpdf_annotrender.cpp
+register_source fpdf_annotobj.cpp
 
 patch --forward -p1 -i "$PATCH_DIR/cpdf_creator_tail.patch" || {
   echo "CadPDF: FAILED to apply cpdf_creator_tail.patch" >&2
